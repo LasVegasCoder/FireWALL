@@ -1,0 +1,201 @@
+iptables -F       
+iptables -F INPUT 
+iptables -F OUTPUT
+iptables -F FORWARD
+iptables -F -t mangle
+iptables -F -t nat
+iptables -X
+#iptables -Z
+
+iptables -P FORWARD  DROP
+iptables -P INPUT  DROP
+iptables -P OUTPUT ACCEPT
+
+
+iptables -A INPUT -i lo -j ACCEPT
+iptables -A INPUT ! -i lo -d 127.0.0.1/8 -j DROP
+iptables -A FORWARD -j ACCEPT
+
+#DROP SPOOF
+iptables -A INPUT -s 224.0.0.0/4 -j DROP
+iptables -A INPUT -d 224.0.0.0/4 -j DROP
+iptables -A INPUT -s 240.0.0.0/5 -j DROP
+iptables -A INPUT -d 240.0.0.0/5 -j DROP
+iptables -A INPUT -s 0.0.0.0/8 -j DROP
+iptables -A INPUT -d 0.0.0.0/8 -j DROP
+iptables -A INPUT -d 239.255.255.0/24 -j DROP
+iptables -A INPUT -d 255.255.255.255 -j DROP
+
+iptables -A INPUT -m state --state INVALID -j DROP
+
+#wget -qO - http://infiltrated.net/blacklisted|awk '!/#|[a-z]/&&/./{print "iptables -A INPUT -s "$1" -j DROP"}'
+
+# DROP ATTACKS
+#for SMURF attack protection
+iptables -A INPUT -p icmp -m icmp --icmp-type  address-mask-request -j DROP
+iptables -A INPUT -p icmp -m icmp --icmp-type  timestamp-request -j DROP
+iptables -A INPUT -p icmp -m icmp --icmp-type 8 -m limit --limit 1/second -j DROP
+
+# Droping all invalid packets
+iptables -A INPUT -m state --state INVALID -j DROP
+iptables -A FORWARD -m state --state INVALID -j DROP
+iptables -A OUTPUT -m state --state INVALID -j DROP
+
+# flooding of RST packets, smurf attack Rejection
+iptables -A INPUT -p tcp -m tcp --tcp-flags RST RST -m limit --limit 2/second --limit-burst 2 -j ACCEPT
+
+# Protecting portscans
+# Attacking IP will be locked for 24 hours (3600 x 24 = 86400 Seconds)
+iptables -A INPUT -m recent --name portscan --rcheck --seconds 86400 -j DROP
+iptables -A FORWARD -m recent --name portscan --rcheck --seconds 86400 -j DROP
+
+# Remove attacking IP after 24 hours
+iptables -A INPUT -m recent --name portscan --remove
+iptables -A FORWARD -m recent --name portscan --remove
+
+PROTECTED=22,25,139,5060
+
+# These rules add scanners to the portscan list, and log the attempt.
+iptables -A INPUT -p tcp -m tcp -m multiport --dports $PROTECTED -m recent --name portscan --set -j LOG --log-prefix "portscan:"
+iptables -A INPUT -p tcp -m tcp -m multiport --dports $PROTECTED -m recent --name portscan --set -j DROP
+
+iptables -A FORWARD -p tcp -m tcp -m multiport --dports $PROTECTED -m recent --name portscan --set -j LOG --log-prefix "portscan:"
+iptables -A FORWARD -p tcp -m tcp -m multiport --dports $PROTECTED -m recent --name portscan --set -j DROP
+
+
+
+#TRIGGERS
+#iptables -A INPUT -p tcp --dport 22 -j LED --led-trigger-id ssh --led-always-blink
+#iptables -A INPUT -p tcp --dport 25 -j LED --led-trigger-id smtp --led-always-blink
+#iptables -A INPUT -p tcp --dport 139 -j LED --led-trigger-id rpc
+
+#echo netfilter-ssh >/sys/class/leds/ssh/trigger
+#echo netfilter-ssh >/sys/class/leds/rpc/trigger
+#echo netfilter-ssh >/sys/class/leds/smtp/trigger
+
+#CREATE TABLE_FUNCTION
+ iptables -N RouterDATA
+ iptables -N FireWALLED
+ iptables -N ACL-WEB
+ iptables -N ACL-WEB-SECURE
+ iptables -N BLOCKED-DATA
+ iptables -N MAIL-ROUTE
+ iptables -N AUDIT_DROP
+
+#ALLOW CNNECTION THRU ROUTER
+iptables -A INPUT -m state --state ESTABLISHED,RELATED -j RouterDATA
+iptables -A INPUT -p tcp --dport 9400 -j ACCEPT
+
+#Allow connection from your router
+#iptables -N RouterDATA 
+ iptables -A RouterDATA -p tcp --dport http -j ACL-WEB
+ iptables -A RouterDATA -p udp --sport 67:68 --dport 67:68 -j FireWALLED
+ iptables -A RouterDATA -p udp --sport 53 --dport 53 -m limit --limit 10/minute -j LOG --log-prefix "Port 53 Possible Exploit Detected :"
+ iptables -A RouterDATA -m limit --limit 10/minute -j LOG --log-prefix "Router Throutled:"
+ iptables -A RouterDATA -p tcp -m multiport --dports smtp,smtps,imap,imaps,pop3 -j MAIL-ROUTE
+ iptables -A RouterDATA -m state --state ESTABLISHED,RELATED -j FireWALLED
+iptables -A RouterDATA -j DROP
+iptables -A INPUT -j RouterDATA
+
+iptables -N ACL-16 
+#iptables -A ACL-16 -s xxx.xxx.xxx.xxx -j RETURN
+#iptables -A ACL-16 -p tcp --dport 9400 -j RETURN
+iptables -A ACL-16 -j RouterDATA
+iptables -A ACL-16 -j DROP
+iptables -A INPUT -j ACL-16
+
+#GET SYN FLOOD PROTECTION 
+iptables -N SYN-FLOOD
+iptables -A SYN-FLOOD -m limit --limit 1/s --limit-burst 4 -j LOG --log-prefix "PUNK! YOUR SYN-FLOOD IS LOGGED  :"
+iptables -A SYN-FLOOD -j REJECT
+iptables -A INPUT -p tcp --syn -j SYN-FLOOD
+
+#DEFINE WHAT GOES THROUGH FIREWALL
+iptables -N FireWALLED
+iptables -A FireWALLED -m state --state NEW -j REJECT
+iptables -A FireWALLED -m state --state INVALID -j REJECT
+iptables -A FireWALLED -m limit --limit 15/minute -j LOG --log-prefix "You are FireWALLED: "
+iptables -A FireWALLED -p tcp --dport http -j ACL-WEB
+#iptables -A FireWALLED -p tcp -m multiport --dports smtp,smtps,imap,imaps,pop3 -j MAIL-ROUTE
+
+iptables -A FireWALLED -p tcp --dport https -j ACL-WEB-SECURE
+iptables -A FireWALLED -m recent --name INTRUDER --rcheck --seconds 60 -j REJECT
+iptables -A FireWALLED -p tcp  --dport 139 -m recent --name INTRUDER --set -j REJECT
+iptables -A FireWALLED -p tcp  --dport 137 -m recent --name INTRUDER --set -j REJECT
+iptables -A FireWALLED -m recent --name INTRUDER --rcheck --seconds 60 -j REJECT
+iptables -A FireWALLED -p tcp  --dport 22 -m recent --name INTRUDER --set -j REJECT
+
+#WE NEED EMAIL TO WORK AND PROTECTED, HERE YOU GO
+ #If you receive more than 5 emails in 1 minutes, it's spamming, log it and filter out for auto blocking .
+ iptables -A MAIL-ROUTE -p tcp -m limit --limit 3/minute -j LOG --log-prefix "Damn  Spammer! :"
+ iptables -A MAIL-ROUTE -p tcp -m multiport --dports smtp,smtps,imap,imaps,pop3 -j ACCEPT
+ iptables -A MAIL-ROUTE -j DROP
+
+#SETUP AN AUDITOR
+ iptables -N AUDIT_DROP
+ iptables -A AUDIT_DROP -j AUDIT --type drop
+ iptables -A AUDIT_DROP -j DROP
+ iptables -A INPUT -j AUDIT_DROP
+
+
+#TRIGGERS
+iptables -A FireWALLED -p tcp --dport 22 -j LED --led-trigger-id ssh --led-always-blink
+iptables -A FireWALLED -p tcp --dport 25 -j LED --led-trigger-id smtp --led-always-blink
+iptables -A FireWALLED -p tcp --dport 139 -j LED --led-trigger-id rpc
+
+iptables  -A  FireWALLED  -p tcp --dport 80 -m string --algo bm --string 'GET /index.html' -j LOG
+
+#RESTRIC CONNECTION PER CLIENT
+
+ iptables -A FireWALLED -p tcp --syn -m connlimit --connlimit-above 11 --connlimit-mask 24 -j REJECT
+ iptables -A FireWALLED -p  tcp --syn --dport 80 -m connlimit --connlimit-above 10 --connlimit-mask 24 -j REJECT
+ iptables -A FireWALLED -p  tcp --syn --dport 25 -m connlimit --connlimit-above 2 --connlimit-mask 24 -j REJECT
+ iptables -A FireWALLED -p  tcp --syn --dport 23 -m connlimit --connlimit-above 2 --connlimit-mask 24 -j REJECT
+ #iptables -A FireWALLED -p  tcp --syn --dport 9400 -m connlimit --connlimit-above 3 --connlimit-mask 24 -j REJECT
+
+#ACCEPT CONNECTION THAT PASSED ROUTERS RULES;
+
+iptables -A FireWALLED -m state --state ESTABLISHED,RELATED -j ACCEPT
+iptables -A FireWALLED -j DROP
+
+#iptables -N ACL-WEB
+iptables -A ACL-WEB -p tcp --dport http -j ACCEPT
+iptables -A ACL-WEB -p  tcp --syn --dport 80 -m connlimit --connlimit-above 10 --connlimit-mask 24 -j REJECT
+iptables -A ACL-WEB -j DROP
+
+iptables -A INPUT -p tcp --dport http -j ACL-WEB
+
+#iptables -N ACL-WEB-SECURE
+iptables -A ACL-WEB-SECURE -p tcp --dport https -j ACCEPT
+iptables -A ACL-WEB -p  tcp --syn --dport 443 -m connlimit --connlimit-above 10 --connlimit-mask 24 -j REJECT
+iptables -A ACL-WEB-SECURE -j DROP
+
+iptables -A INPUT -p tcp --dport https -j ACL-WEB-SECURE
+
+#iptables -N BLOCKED-DATA
+iptables -A BLOCKED-DATA -m limit --limit 10/minute -j LOG --log-prefix "BLOCKED-DATA : "
+
+#BLOCK HACKING FLAGS
+iptables -A BLOCKED-DATA -p tcp --tcp-flags ACK,FIN FIN -j DROP
+iptables -A BLOCKED-DATA -p tcp --tcp-flags ACK,PSH PSH -j DROP
+iptables -A BLOCKED-DATA -p tcp --tcp-flags ACK,URG URG -j DROP
+iptables -A BLOCKED-DATA -p tcp --tcp-flags FIN,RST SYN,RST -j DROP
+iptables -A BLOCKED-DATA -p tcp --tcp-flags SYN,FIN SYN,FIN -j DROP
+iptables -A BLOCKED-DATA -p tcp --tcp-flags ALL ALL -j DROP
+iptables -A BLOCKED-DATA -p tcp --tcp-flags ALL NONE -j DROP
+iptables -A BLOCKED-DATA -p tcp --tcp-flags ALL SYN,RST,ACK,FIN,URG -j DROP 
+iptables -A BLOCKED-DATA -j DROP
+
+iptables -A INPUT -p tcp -j BLOCKED-DATA
+
+#ALLOW CONNECTION
+
+iptables -A INPUT -p udp --sport 67:68 --dport 67:68 -j  RouterDATA
+
+iptables -t nat -A POSTROUTING  -s 172.30.80.248/29 -j MASQUERADE
+iptables -t nat -A POSTROUTING  -s 172.19.35.248/29 -j MASQUERADE
+iptables -t nat -A POSTROUTING  -s 10.21.44.248/29 -j MASQUERADE
+
+#DROP ALL CONNECTION THAT DOESNT MATCH OUR RULES
+wget -qO - http://infiltrated.net/blacklisted|awk '!/#|[a-z]/&&/./{print "iptables -A INPUT -s "$1" -j DROP"}'
+iptables -A INPUT -j DROP
