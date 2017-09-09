@@ -7,3 +7,6 @@
 `chmod +x princeserverguard.ipt`
 
 `./princeserverguard.ipt`
+
+Then watch your traffic with:
+`watch -d -n1 iptables -vnL`
