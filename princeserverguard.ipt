@@ -53,6 +53,7 @@ iptables -A FORWARD -m recent --name portscan --rcheck --seconds 86400 -j DROP
 iptables -A INPUT -m recent --name portscan --remove
 iptables -A FORWARD -m recent --name portscan --remove
 
+#Add port(s) to be monitored and protected. Below monitored SSH(22), EMAIL(25), SMB (139,445) and ASTERISK/VOIP (5060)
 PROTECTED=22,25,139,5060
 
 # These rules add scanners to the portscan list, and log the attempt.
@@ -63,11 +64,10 @@ iptables -A FORWARD -p tcp -m tcp -m multiport --dports $PROTECTED -m recent --n
 iptables -A FORWARD -p tcp -m tcp -m multiport --dports $PROTECTED -m recent --name portscan --set -j DROP
 
 
-
-#TRIGGERS
+#TRIGGERS, useful to flash your keyboard LED or Computer LED for any Intruder or Hacking Alert.
 #iptables -A INPUT -p tcp --dport 22 -j LED --led-trigger-id ssh --led-always-blink
 #iptables -A INPUT -p tcp --dport 25 -j LED --led-trigger-id smtp --led-always-blink
-#iptables -A INPUT -p tcp --dport 139 -j LED --led-trigger-id rpc
+#iptables -A INPUT -p tcp --dport 139 -j LED --led-trigger-id rpc --led-always-blink
 
 #echo netfilter-ssh >/sys/class/leds/ssh/trigger
 #echo netfilter-ssh >/sys/class/leds/rpc/trigger
@@ -137,7 +137,6 @@ iptables -A FireWALLED -p tcp  --dport 22 -m recent --name INTRUDER --set -j REJ
  iptables -A AUDIT_DROP -j DROP
  iptables -A INPUT -j AUDIT_DROP
 
-
 #TRIGGERS
 iptables -A FireWALLED -p tcp --dport 22 -j LED --led-trigger-id ssh --led-always-blink
 iptables -A FireWALLED -p tcp --dport 25 -j LED --led-trigger-id smtp --led-always-blink
@@ -145,7 +144,7 @@ iptables -A FireWALLED -p tcp --dport 139 -j LED --led-trigger-id rpc
 
 iptables  -A  FireWALLED  -p tcp --dport 80 -m string --algo bm --string 'GET /index.html' -j LOG
 
-#RESTRIC CONNECTION PER CLIENT
+#RESTRICt CONNECTION PER CLIENT to avoid BOTNET Throuthling 
 
  iptables -A FireWALLED -p tcp --syn -m connlimit --connlimit-above 11 --connlimit-mask 24 -j REJECT
  iptables -A FireWALLED -p  tcp --syn --dport 80 -m connlimit --connlimit-above 10 --connlimit-mask 24 -j REJECT
@@ -153,29 +152,38 @@ iptables  -A  FireWALLED  -p tcp --dport 80 -m string --algo bm --string 'GET /i
  iptables -A FireWALLED -p  tcp --syn --dport 23 -m connlimit --connlimit-above 2 --connlimit-mask 24 -j REJECT
  #iptables -A FireWALLED -p  tcp --syn --dport 9400 -m connlimit --connlimit-above 3 --connlimit-mask 24 -j REJECT
 
-#ACCEPT CONNECTION THAT PASSED ROUTERS RULES;
-
+#ACCEPT ONLY CONNECTION THAT PASSED ROUTERS FIREWALLeD RULES, DROP the rest;
 iptables -A FireWALLED -m state --state ESTABLISHED,RELATED -j ACCEPT
 iptables -A FireWALLED -j DROP
 
+#CREATE ACCESS CONTROL LEVEL for connection to the website(s)
 #iptables -N ACL-WEB
 iptables -A ACL-WEB -p tcp --dport http -j ACCEPT
+
+#Limit connection to per client connecting to the website, drop dummy connection saves bandwidth
 iptables -A ACL-WEB -p  tcp --syn --dport 80 -m connlimit --connlimit-above 10 --connlimit-mask 24 -j REJECT
 iptables -A ACL-WEB -j DROP
 
+#Allow all connection to website port http goes through ACL-WEB (Access Control Level for Web)
 iptables -A INPUT -p tcp --dport http -j ACL-WEB
 
 #iptables -N ACL-WEB-SECURE
 iptables -A ACL-WEB-SECURE -p tcp --dport https -j ACCEPT
 iptables -A ACL-WEB -p  tcp --syn --dport 443 -m connlimit --connlimit-above 10 --connlimit-mask 24 -j REJECT
+
+#Allow all connection to website port https goes through ACL-WEB SECURE (Access Control Level for Web)
 iptables -A ACL-WEB-SECURE -j DROP
 
+#Allow all connection to website port https goes through ACL-WEB-SECURE (Access Control Level for secure Web)
 iptables -A INPUT -p tcp --dport https -j ACL-WEB-SECURE
 
-#iptables -N BLOCKED-DATA
+#Monitors connections to your server and block and lock hacking flags.
+#Blocks any IP address that hit the server 10 times within a minute with any of HACKING FLAG.
+#See the blocked IP Address using   grep -i "BLOCKED-DATA :" /var/location/of/your/iptable.log
+#iptables -N BLOCKED-DATA; 
 iptables -A BLOCKED-DATA -m limit --limit 10/minute -j LOG --log-prefix "BLOCKED-DATA : "
 
-#BLOCK HACKING FLAGS
+#BLOCK HACKING FLAGS, drop their incoming packets.
 iptables -A BLOCKED-DATA -p tcp --tcp-flags ACK,FIN FIN -j DROP
 iptables -A BLOCKED-DATA -p tcp --tcp-flags ACK,PSH PSH -j DROP
 iptables -A BLOCKED-DATA -p tcp --tcp-flags ACK,URG URG -j DROP
@@ -186,16 +194,19 @@ iptables -A BLOCKED-DATA -p tcp --tcp-flags ALL NONE -j DROP
 iptables -A BLOCKED-DATA -p tcp --tcp-flags ALL SYN,RST,ACK,FIN,URG -j DROP 
 iptables -A BLOCKED-DATA -j DROP
 
+#Monitors connection to the server with hacking flags goes through BLOCKED-DATA
 iptables -A INPUT -p tcp -j BLOCKED-DATA
 
-#ALLOW CONNECTION
-
+#ALLOW CONNECTION prevent dns hi-jacking, only connection from known source port and destination port is allowed thru RouterDATA
 iptables -A INPUT -p udp --sport 67:68 --dport 67:68 -j  RouterDATA
 
+#Hide your VM (Virtual Machines) or network from the real world, but allow them to access the world masqueradly. 
 iptables -t nat -A POSTROUTING  -s 172.30.80.248/29 -j MASQUERADE
 iptables -t nat -A POSTROUTING  -s 172.19.35.248/29 -j MASQUERADE
 iptables -t nat -A POSTROUTING  -s 10.21.44.248/29 -j MASQUERADE
 
+#Automatically append blacklisted IP addresses to our database, keep spammers, script kiddies and tor users etc off my network.
+#wget -qO - http://infiltrated.net/blacklisted|awk '!/#|[a-z]/&&/./{print "iptables -A INPUT -s "$1" -j DROP"}'
+
 #DROP ALL CONNECTION THAT DOESNT MATCH OUR RULES
-wget -qO - http://infiltrated.net/blacklisted|awk '!/#|[a-z]/&&/./{print "iptables -A INPUT -s "$1" -j DROP"}'
 iptables -A INPUT -j DROP
