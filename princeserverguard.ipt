@@ -1,3 +1,5 @@
+#Flush all default rules! Save your existing rules with iptables-saves > backup-rules.txt
+# Add comment to iptables -F if you want to preserve your original firewall rules.
 iptables -F       
 iptables -F INPUT 
 iptables -F OUTPUT
@@ -11,12 +13,16 @@ iptables -P FORWARD  DROP
 iptables -P INPUT  DROP
 iptables -P OUTPUT ACCEPT
 
-
+#Accept all input connection on loopback
 iptables -A INPUT -i lo -j ACCEPT
+
+#Drop any spoof on my loopack interface.
 iptables -A INPUT ! -i lo -d 127.0.0.1/8 -j DROP
+
+#Allow VMs and network devices to accept forwarded packet. (Router-On-A-Stick)
 iptables -A FORWARD -j ACCEPT
 
-#DROP SPOOF
+#DROP SPOOF, no spoof allowed on this server
 iptables -A INPUT -s 224.0.0.0/4 -j DROP
 iptables -A INPUT -d 224.0.0.0/4 -j DROP
 iptables -A INPUT -s 240.0.0.0/5 -j DROP
@@ -26,6 +32,7 @@ iptables -A INPUT -d 0.0.0.0/8 -j DROP
 iptables -A INPUT -d 239.255.255.0/24 -j DROP
 iptables -A INPUT -d 255.255.255.255 -j DROP
 
+#Drop all invalid packet, we know what we do to hacker's crafted, forged packet, we DROP 'em!
 iptables -A INPUT -m state --state INVALID -j DROP
 
 #wget -qO - http://infiltrated.net/blacklisted|awk '!/#|[a-z]/&&/./{print "iptables -A INPUT -s "$1" -j DROP"}'
@@ -56,7 +63,7 @@ iptables -A FORWARD -m recent --name portscan --remove
 #Add port(s) to be monitored and protected. Below monitored SSH(22), EMAIL(25), SMB (139,445) and ASTERISK/VOIP (5060)
 PROTECTED=22,25,139,5060
 
-# These rules add scanners to the portscan list, and log the attempt.
+#Detect and log scanners, add them to the portscan list, and log the attempt.
 iptables -A INPUT -p tcp -m tcp -m multiport --dports $PROTECTED -m recent --name portscan --set -j LOG --log-prefix "portscan:"
 iptables -A INPUT -p tcp -m tcp -m multiport --dports $PROTECTED -m recent --name portscan --set -j DROP
 
