@@ -64,7 +64,7 @@ iptables -A FORWARD -p tcp -m tcp -m multiport --dports $PROTECTED -m recent --n
 iptables -A FORWARD -p tcp -m tcp -m multiport --dports $PROTECTED -m recent --name portscan --set -j DROP
 
 
-#TRIGGERS, useful to flash your keyboard LED or Computer LED for any Intruder or Hacking Alert.
+#TRIGGERS, flashes your keyboard LED or Computer LED for any Intruder or Hacking Alert.
 #iptables -A INPUT -p tcp --dport 22 -j LED --led-trigger-id ssh --led-always-blink
 #iptables -A INPUT -p tcp --dport 25 -j LED --led-trigger-id smtp --led-always-blink
 #iptables -A INPUT -p tcp --dport 139 -j LED --led-trigger-id rpc --led-always-blink
@@ -86,9 +86,10 @@ iptables -A FORWARD -p tcp -m tcp -m multiport --dports $PROTECTED -m recent --n
 iptables -A INPUT -m state --state ESTABLISHED,RELATED -j RouterDATA
 iptables -A INPUT -p tcp --dport 9400 -j ACCEPT
 
-#Allow connection from your router
+#RouterDATA is the gateway, define what rule-set handles what packet coming from the RouterDATA
 #iptables -N RouterDATA 
  iptables -A RouterDATA -p tcp --dport http -j ACL-WEB
+ iptables -A RouterDATA -p tcp --dport http -j ACL-WEB-SECURE
  iptables -A RouterDATA -p udp --sport 67:68 --dport 67:68 -j FireWALLED
  iptables -A RouterDATA -p udp --sport 53 --dport 53 -m limit --limit 10/minute -j LOG --log-prefix "Port 53 Possible Exploit Detected :"
  iptables -A RouterDATA -m limit --limit 10/minute -j LOG --log-prefix "Router Throutled:"
@@ -97,11 +98,16 @@ iptables -A INPUT -p tcp --dport 9400 -j ACCEPT
 iptables -A RouterDATA -j DROP
 iptables -A INPUT -j RouterDATA
 
+#Define Administrative Access Level rules, allow certain IP to connect and manages the server.
 iptables -N ACL-16 
+#iptables -A ACL-16 -p tcp --dport 1234 -j RETURN
 #iptables -A ACL-16 -s xxx.xxx.xxx.xxx -j RETURN
-#iptables -A ACL-16 -p tcp --dport 9400 -j RETURN
+#iptables -A ACL-16 -s xxx.xxx.xxx.xxx -j RETURN
+#iptables -A ACL-16 -s xxx.xxx.xxx.xxx -j RETURN
 iptables -A ACL-16 -j RouterDATA
 iptables -A ACL-16 -j DROP
+
+#Allow administrative IP to go thru ACL-16
 iptables -A INPUT -j ACL-16
 
 #GET SYN FLOOD PROTECTION 
